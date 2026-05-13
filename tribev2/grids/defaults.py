@@ -25,7 +25,10 @@ for path in [CACHEDIR, SAVEDIR, DATADIR]:
 text_feature = {
     "name": "HuggingFaceText",
     "event_types": "Word",
-    "model_name": "meta-llama/Llama-3.2-3B",
+    # Public mirror of the gated Meta Llama 3.2 3B model. It keeps the
+    # same Llama hidden size/layer layout needed by the released TRIBE config
+    # without requiring access approval for meta-llama/Llama-3.2-3B.
+    "model_name": "unsloth/Llama-3.2-3B",
     "aggregation": "sum",
     "frequency": 2,
     "contextualized": True,
