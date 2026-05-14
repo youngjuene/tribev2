@@ -33,3 +33,16 @@ wandb/
 
 # OS
 .DS_Store
+
+# Local OMX/runtime artifacts
+.omx/
+
+# Local prepared datasets and generated MLX/TRIBE artifacts
+data/
+cache_mac_m2*/
+cache_mlx_full_attempt/
+cache_probe_tmp/
+full_mlx_run_report.json
+
+# Local MLX verification/probe artifacts
+cache_mac_m2_verification/

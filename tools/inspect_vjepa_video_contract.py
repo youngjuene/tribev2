@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""Emit the frozen TRIBE/V-JEPA2 video contract for MLX feasibility work.
+
+This tool is intentionally metadata-only: it inspects the released TRIBE
+checkpoint/config contract plus the Hugging Face V-JEPA2 config, but it does not
+load V-JEPA2 weights.  Ralph foundation uses it as the gate before any mapping or
+full-model probe work.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+from transformers import VJEPA2Config
+
+from inspect_tribe_feature_contracts import inspect_contracts
+
+DEFAULT_MODEL_ID = "facebook/vjepa2-vitg-fpc64-256"
+DEFAULT_TRIBE_REPO = "facebook/tribev2"
+DEFAULT_TRIBE_CHECKPOINT = "best.ckpt"
+
+
+def _config_dict(model_id: str) -> tuple[VJEPA2Config | None, str | None]:
+    try:
+        return VJEPA2Config.from_pretrained(model_id), None
+    except Exception as exc:  # pragma: no cover - network/cache dependent
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _intermediate_size(cfg: VJEPA2Config | None) -> int | str:
+    if cfg is None:
+        return "unknown"
+    return int(round(cfg.hidden_size * cfg.mlp_ratio))
+
+
+def build_contract(
+    model_id: str = DEFAULT_MODEL_ID,
+    tribe_repo_id: str = DEFAULT_TRIBE_REPO,
+    tribe_checkpoint_name: str = DEFAULT_TRIBE_CHECKPOINT,
+) -> dict[str, Any]:
+    tribe = inspect_contracts(tribe_repo_id, tribe_checkpoint_name)
+    video_dims = tribe["feature_dims"].get("video")
+    video_extractor = tribe.get("extractors", {}).get("video") or {}
+    cfg, cfg_error = _config_dict(model_id)
+
+    cfg_fields: dict[str, Any] = {
+        "model_id": model_id,
+        "config_status": "loaded" if cfg is not None else "blocked",
+        "config_error": cfg_error,
+        "hidden_size": getattr(cfg, "hidden_size", "unknown"),
+        "frames_per_clip": getattr(cfg, "frames_per_clip", "unknown"),
+        "tubelet_size": getattr(cfg, "tubelet_size", "unknown"),
+        "image_size": getattr(cfg, "crop_size", "unknown"),
+        "patch_size": getattr(cfg, "patch_size", "unknown"),
+        "num_hidden_layers": getattr(cfg, "num_hidden_layers", "unknown"),
+        "num_attention_heads": getattr(cfg, "num_attention_heads", "unknown"),
+        "mlp_ratio": getattr(cfg, "mlp_ratio", "unknown"),
+        "intermediate_size": _intermediate_size(cfg),
+        "activation": getattr(cfg, "hidden_act", "unknown"),
+        "qkv_bias": getattr(cfg, "qkv_bias", "unknown"),
+        "layer_norm_eps": getattr(cfg, "layer_norm_eps", "unknown"),
+        "positional_encoding": {
+            "type": "unknown_from_public_config",
+            "rope_details": "unknown_from_public_config",
+            "note": "Foundation may continue to tiny parity, but semantic parity needs source/model inspection before mapping/probe.",
+        },
+    }
+
+    contract = {
+        "status": "ok" if video_dims == [2, 1408] and cfg is not None else "partial",
+        "phase": "foundation_contract",
+        "tribe": {
+            "repo_id": tribe_repo_id,
+            "checkpoint_name": tribe_checkpoint_name,
+            "features_to_use": tribe["features_to_use"],
+            "video_feature_dims": video_dims,
+            "video_extractor": video_extractor,
+            "n_outputs": tribe["n_outputs"],
+            "n_output_timesteps": tribe["n_output_timesteps"],
+        },
+        "vjepa2": cfg_fields,
+        "selected_feature_contract": {
+            "target_tensor_order": ["layers", "dim", "time"],
+            "target_shape_prefix": video_dims,
+            "layers": video_extractor.get("layers", "unknown"),
+            "cache_n_layers": video_extractor.get("cache_n_layers", "unknown"),
+            "layer_aggregation": video_extractor.get("layer_aggregation", "unknown"),
+            "token_pooling": video_extractor.get("token_aggregation", "unknown"),
+            "frequency_hz": video_extractor.get("frequency", "unknown"),
+            "temporal_resampling": "neuralset extractor controlled; foundation records frequency only",
+            "aggregation": video_extractor.get("aggregation", "unknown"),
+        },
+        "dtype_policy": {
+            "reference": "float32 torch CPU/MPS when available",
+            "tiny_parity": "float32 torch CPU vs MLX default device",
+            "real_probe": "deferred; must be selected after memory preflight",
+        },
+        "milestone_policy": {
+            "foundation": "allowed with partial positional details; no semantic parity claim",
+            "mapping_or_later": "requires resolving unknown architecture details before full mapping/probe claims",
+        },
+    }
+    return contract
+
+
+def write_markdown(contract: dict[str, Any], path: Path) -> None:
+    vj = contract["vjepa2"]
+    tribe = contract["tribe"]
+    selected = contract["selected_feature_contract"]
+    lines = [
+        "# V-JEPA2 on MLX Contract",
+        "",
+        "This file is generated by `tools/inspect_vjepa_video_contract.py`. It freezes the foundation contract before any full V-JEPA2 weight load or MLX checkpoint mapping.",
+        "",
+        "## Target lock",
+        "",
+        f"- Target model id: `{vj['model_id']}`",
+        f"- TRIBE checkpoint: `{tribe['repo_id']}` / `{tribe['checkpoint_name']}`",
+        f"- Released TRIBE video feature dims: `{tribe['video_feature_dims']}`",
+        "- Required final feature tensor order: `[layers, dim, time]`",
+        "",
+        "## V-JEPA2 architecture fields",
+        "",
+        f"- Config status: `{vj['config_status']}`",
+        f"- Hidden size: `{vj['hidden_size']}`",
+        f"- Frames per clip: `{vj['frames_per_clip']}`",
+        f"- Tubelet size: `{vj['tubelet_size']}`",
+        f"- Image/crop size: `{vj['image_size']}`",
+        f"- Patch size: `{vj['patch_size']}`",
+        f"- Hidden layers: `{vj['num_hidden_layers']}`",
+        f"- Attention heads: `{vj['num_attention_heads']}`",
+        f"- MLP ratio: `{vj['mlp_ratio']}`",
+        f"- Intermediate size: `{vj['intermediate_size']}`",
+        f"- Activation: `{vj['activation']}`",
+        f"- QKV bias: `{vj['qkv_bias']}`",
+        f"- LayerNorm eps: `{vj['layer_norm_eps']}`",
+        f"- Positional/ROPE details: `{vj['positional_encoding']['rope_details']}`",
+        "",
+        "## TRIBE aggregation contract",
+        "",
+        f"- Layers: `{selected['layers']}`",
+        f"- Cache n layers: `{selected['cache_n_layers']}`",
+        f"- Layer aggregation: `{selected['layer_aggregation']}`",
+        f"- Token pooling: `{selected['token_pooling']}`",
+        f"- Frequency: `{selected['frequency_hz']}` Hz",
+        f"- Temporal resampling: {selected['temporal_resampling']}",
+        "",
+        "## Dtype policy",
+        "",
+    ]
+    for key, value in contract["dtype_policy"].items():
+        lines.append(f"- `{key}`: {value}")
+    lines += [
+        "",
+        "## Foundation interpretation",
+        "",
+        "Unknown positional/ROPE details do not block tiny MLX/PyTorch mechanics parity. They do block any claim of semantic V-JEPA2 parity and must be resolved before mapping/probe milestones.",
+    ]
+    if vj.get("config_error"):
+        lines += ["", "## Config blocker", "", f"`{vj['config_error']}`"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-id", default=DEFAULT_MODEL_ID)
+    parser.add_argument("--tribe-repo-id", default=DEFAULT_TRIBE_REPO)
+    parser.add_argument("--tribe-checkpoint-name", default=DEFAULT_TRIBE_CHECKPOINT)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--write-doc", type=Path)
+    args = parser.parse_args()
+
+    contract = build_contract(args.model_id, args.tribe_repo_id, args.tribe_checkpoint_name)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(contract, indent=2))
+    if args.write_doc:
+        write_markdown(contract, args.write_doc)
+    if args.json:
+        print(json.dumps(contract, indent=2))
+    else:
+        print(f"status={contract['status']} video_dims={contract['tribe']['video_feature_dims']} model={args.model_id}")
+
+
+if __name__ == "__main__":
+    main()

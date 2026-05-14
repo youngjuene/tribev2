@@ -9,6 +9,11 @@
 
 import os
 
+if os.getenv("TRIBEV2_SKIP_LONG_VJEPA") == "1":
+    import pytest
+
+    pytest.skip("Skipping grid training smoke in bounded V-JEPA regression mode", allow_module_level=True)
+
 from exca import ConfDict
 
 from ..main import TribeExperiment  # type: ignore
@@ -31,10 +36,14 @@ updated_config = ConfDict(mini_config)
 updated_config.update(update)
 
 
-def test_run(config: dict) -> None:
+def _run_config(config: dict) -> None:
     task = TribeExperiment(**config)
     task.infra.clear_job()
     task.run()
+
+
+def test_run() -> None:
+    _run_config(updated_config)
 
 
 if __name__ == "__main__":
@@ -44,4 +53,4 @@ if __name__ == "__main__":
         import shutil
 
         shutil.rmtree(folder)
-    test_run(updated_config)
+    _run_config(updated_config)
