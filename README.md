@@ -80,6 +80,49 @@ pip install -e .
 pip install -e ".[plotting]"
 ```
 
+**With FreeSurfer surface-to-volume / cluster-table export**:
+
+The vectorized analysis pipeline can write fsaverage surface maps directly.  To
+run the optional FreeSurfer projection and clustering stage, install
+FreeSurfer separately because it is a large system package, not a Python wheel.
+For Apple Silicon Macs, the helper below downloads the official 8.2.0 arm64
+package and installs it under `/Applications/freesurfer/8.2.0`:
+
+```bash
+bash tools/setup_freesurfer_macos.sh --download-only
+bash tools/setup_freesurfer_macos.sh
+```
+
+FreeSurfer commands require a license file.  After receiving `license.txt` from
+the FreeSurfer registration form, make it discoverable before running the
+pipeline:
+
+```bash
+export FS_LICENSE="$HOME/license.txt"
+export FREESURFER_HOME="/Applications/freesurfer/8.2.0"
+export NO_FSFAST=1
+source "$FREESURFER_HOME/SetUpFreeSurfer.sh"
+```
+
+Then a saved TRIBE prediction matrix can be converted into vectorized outputs,
+surface maps, and FreeSurfer command outputs:
+
+```bash
+python tools/run_vectorized_analysis.py \
+  --predictions derivatives/tribe/predictions.npy \
+  --segments derivatives/tribe/segments.csv \
+  --events derivatives/tribe/events.csv \
+  --condition-column type \
+  --contrast A-B \
+  --write-rdm \
+  --write-surface \
+  --run-freesurfer \
+  --output-root derivatives/vectorized/run_001
+```
+
+Without a license or local FreeSurfer install, use `--dry-run-freesurfer` to
+validate the generated `mri_surf2vol` and `mri_surfcluster` commands.
+
 **With training dependencies** (PyTorch Lightning, W&B, etc.):
 ```bash
 pip install -e ".[training]"
@@ -118,6 +161,7 @@ tribev2/
 ├── model.py             # FmriEncoder: Transformer-based multimodal→fMRI model
 ├── pl_module.py         # PyTorch Lightning training module
 ├── demo_utils.py        # TribeModel and helpers for inference from text/audio/video
+├── analysis/            # Vectorized predictions, ROI/RDM, surface and FreeSurfer export
 ├── eventstransforms.py  # Custom event transforms (word extraction, chunking, …)
 ├── utils.py             # Multi-study loading, splitting, subject weighting
 ├── utils_fmri.py        # Surface projection (MNI / fsaverage) and ROI analysis

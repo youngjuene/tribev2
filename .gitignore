@@ -15,7 +15,9 @@ cache/
 
 # Environment / secrets
 .env
+license.txt
 .venv/
+.venv*/
 venv/
 env/
 
@@ -39,6 +41,7 @@ wandb/
 
 # Local prepared datasets and generated MLX/TRIBE artifacts
 data/
+derivatives/
 cache_mac_m2*/
 cache_mlx_full_attempt/
 cache_probe_tmp/
@@ -46,3 +49,11 @@ full_mlx_run_report.json
 
 # Local MLX verification/probe artifacts
 cache_mac_m2_verification/
+
+# Large local installer / neuroimaging outputs
+freesurfer-*.pkg
+*.nii
+*.nii.gz
+*.mgz
+*.mgh
+*.gii
